@@ -3,7 +3,7 @@
 use super::Relation;
 
 /// Performs treefrog leapjoin using a list of leapers.
-pub(crate) fn leapjoin<'leap, Tuple: Ord, Val: Ord + 'leap, Result: Ord>(
+pub fn leapjoin<'leap, Tuple: Ord, Val: Ord + 'leap, Result: Ord>(
     source: &[Tuple],
     mut leapers: impl Leapers<'leap, Tuple, Val>,
     mut logic: impl FnMut(&Tuple, &Val) -> Result,

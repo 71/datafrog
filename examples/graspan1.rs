@@ -39,8 +39,8 @@ fn main() {
     let mut iteration = Iteration::new();
 
     // .. some variables, ..
-    let variable1 = iteration.variable::<(u32, u32)>("nodes");
-    let variable2 = iteration.variable::<(u32, u32)>("edges");
+    let variable1 = iteration.variable::<(u32, u32)>();
+    let variable2 = iteration.variable::<(u32, u32)>();
 
     // .. load them with some initial values, ..
     variable1.insert(nodes.into());

@@ -13,7 +13,6 @@
 
 use std::cell::RefCell;
 use std::cmp::Ordering;
-use std::io::Write;
 use std::iter::FromIterator;
 use std::rc::Rc;
 
@@ -23,6 +22,7 @@ mod test;
 mod treefrog;
 pub use crate::join::JoinInput;
 pub use crate::treefrog::{
+    leapjoin,
     extend_anti::ExtendAnti,
     extend_with::ExtendWith,
     filter_anti::FilterAnti,
@@ -132,9 +132,20 @@ impl<Tuple: Ord> Relation<Tuple> {
     pub fn from_join<Key: Ord, Val1: Ord, Val2: Ord>(
         input1: &Relation<(Key, Val1)>,
         input2: &Relation<(Key, Val2)>,
-        logic: impl FnMut(&Key, &Val1, &Val2) -> Tuple,
+        mut logic: impl FnMut(&Key, &Val1, &Val2) -> Tuple,
     ) -> Self {
-        join::join_into_relation(input1, input2, logic)
+        join::join_into_relation(input1, input2, |(k, _)| k, |(k, _)| k, |k, v1, v2| logic(k, &v1.1, &v2.1))
+    }
+
+    /// Like `from_join`, but lets the caller choose how keys are selected.
+    pub fn from_join_adv<Key: Ord, T1: Ord, T2: Ord>(
+        input1: &Relation<T1>,
+        input2: &Relation<T2>,
+        input1_key: impl Fn(&T1) -> &Key,
+        input2_key: impl Fn(&T2) -> &Key,
+        logic: impl FnMut(&Key, &T1, &T2) -> Tuple,
+    ) -> Self {
+        join::join_into_relation(input1, input2, input1_key, input2_key, logic)
     }
 
     /// Creates a `Relation` by removing all values from `input1` that
@@ -202,17 +213,17 @@ impl<Tuple: Ord> std::ops::Deref for Relation<Tuple> {
 /// It can inform the user if they have ceased changing, at which point the
 /// computation should be done.
 #[derive(Default)]
-pub struct Iteration {
-    variables: Vec<Box<dyn VariableTrait>>,
+pub struct Iteration<'v> {
+    variables: Vec<Box<dyn VariableTrait + 'v>>,
     round: u32,
-    debug_stats: Option<Box<dyn Write>>,
 }
 
-impl Iteration {
+impl<'v> Iteration<'v> {
     /// Create a new iterative context.
     pub fn new() -> Self {
         Self::default()
     }
+
     /// Reports whether any of the monitored variables have changed since
     /// the most recent call.
     pub fn changed(&mut self) -> bool {
@@ -223,38 +234,26 @@ impl Iteration {
             if variable.changed() {
                 result = true;
             }
-
-            if let Some(ref mut stats_writer) = self.debug_stats {
-                variable.dump_stats(self.round, stats_writer);
-            }
         }
         result
     }
+
     /// Creates a new named variable associated with the iterative context.
-    pub fn variable<Tuple: Ord + 'static>(&mut self, name: &str) -> Variable<Tuple> {
-        let variable = Variable::new(name);
+    pub fn variable<Tuple: Ord + 'v>(&mut self) -> Variable<Tuple> {
+        let variable = Variable::new();
         self.variables.push(Box::new(variable.clone()));
         variable
     }
+
     /// Creates a new named variable associated with the iterative context.
     ///
     /// This variable will not be maintained distinctly, and may advertise tuples as
     /// recent multiple times (perhaps unboundedly many times).
-    pub fn variable_indistinct<Tuple: Ord + 'static>(&mut self, name: &str) -> Variable<Tuple> {
-        let mut variable = Variable::new(name);
+    pub fn variable_indistinct<Tuple: Ord + 'v>(&mut self) -> Variable<Tuple> {
+        let mut variable = Variable::new();
         variable.distinct = false;
         self.variables.push(Box::new(variable.clone()));
         variable
-    }
-
-    /// Set up this Iteration to write debug statistics about each variable,
-    /// for each round of the computation.
-    pub fn record_stats_to(&mut self, mut w: Box<dyn Write>) {
-        // print column names header
-        writeln!(w, "Variable,Round,Stable count,Recent count")
-            .expect("Couldn't write debug stats CSV header");
-
-        self.debug_stats = Some(w);
     }
 }
 
@@ -262,9 +261,6 @@ impl Iteration {
 trait VariableTrait {
     /// Reports whether the variable has changed since it was last asked.
     fn changed(&mut self) -> bool;
-
-    /// Dumps statistics about the variable internals, for debug and profiling purposes.
-    fn dump_stats(&self, round: u32, w: &mut dyn Write);
 }
 
 /// An monotonically increasing set of `Tuple`s.
@@ -287,8 +283,6 @@ trait VariableTrait {
 pub struct Variable<Tuple: Ord> {
     /// Should the variable be maintained distinctly.
     distinct: bool,
-    /// A useful name for the variable.
-    name: String,
     /// A list of relations whose union are the accepted tuples.
     pub stable: Rc<RefCell<Vec<Relation<Tuple>>>>,
     /// A list of recent tuples, still to be processed.
@@ -341,9 +335,21 @@ impl<Tuple: Ord> Variable<Tuple> {
         &self,
         input1: &'me Variable<(K, V1)>,
         input2: impl JoinInput<'me, (K, V2)>,
-        logic: impl FnMut(&K, &V1, &V2) -> Tuple,
+        mut logic: impl FnMut(&K, &V1, &V2) -> Tuple,
     ) {
-        join::join_into(input1, input2, self, logic)
+        join::join_into(input1, input2, self, |(k, _)| k, |(k, _)| k, |k, v1, v2| logic(k, &v1.1, &v2.1))
+    }
+
+    /// Like `from_join`, but lets the caller choose how keys are selected.
+    pub fn from_join_adv<'me, K: Ord, T1: Ord, T2: Ord>(
+        &self,
+        input1: &'me Variable<T1>,
+        input2: impl JoinInput<'me, T2>,
+        input1_key: impl Fn(&T1) -> &K,
+        input2_key: impl Fn(&T2) -> &K,
+        logic: impl FnMut(&K, &T1, &T2) -> Tuple,
+    ) {
+        join::join_into(input1, input2, self, input1_key, input2_key, logic)
     }
 
     /// Adds tuples from `input1` whose key is not present in `input2`.
@@ -459,7 +465,6 @@ impl<Tuple: Ord> Clone for Variable<Tuple> {
     fn clone(&self) -> Self {
         Variable {
             distinct: self.distinct,
-            name: self.name.clone(),
             stable: self.stable.clone(),
             recent: self.recent.clone(),
             to_add: self.to_add.clone(),
@@ -468,10 +473,9 @@ impl<Tuple: Ord> Clone for Variable<Tuple> {
 }
 
 impl<Tuple: Ord> Variable<Tuple> {
-    fn new(name: &str) -> Self {
+    fn new() -> Self {
         Variable {
             distinct: true,
-            name: name.to_string(),
             stable: Rc::new(RefCell::new(Vec::new())),
             recent: Rc::new(RefCell::new(Vec::new().into())),
             to_add: Rc::new(RefCell::new(Vec::new())),
@@ -566,45 +570,6 @@ impl<Tuple: Ord> VariableTrait for Variable<Tuple> {
             *self.recent.borrow_mut() = to_add;
         }
 
-        // let mut total = 0;
-        // for tuple in self.stable.borrow().iter() {
-        //     total += tuple.len();
-        // }
-
-        // println!("Variable\t{}\t{}\t{}", self.name, total, self.recent.borrow().len());
-
         !self.recent.borrow().is_empty()
     }
-
-    fn dump_stats(&self, round: u32, w: &mut dyn Write) {
-        let mut stable_count = 0;
-        for tuple in self.stable.borrow().iter() {
-            stable_count += tuple.len();
-        }
-
-        writeln!(
-            w,
-            "{:?},{},{},{}",
-            self.name,
-            round,
-            stable_count,
-            self.recent.borrow().len()
-        )
-        .unwrap_or_else(|e| {
-            panic!(
-                "Couldn't write stats for variable {}, round {}: {}",
-                self.name, round, e
-            )
-        });
-    }
 }
-
-// impl<Tuple: Ord> Drop for Variable<Tuple> {
-//     fn drop(&mut self) {
-//         let mut total = 0;
-//         for batch in self.stable.borrow().iter() {
-//             total += batch.len();
-//         }
-//         println!("FINAL: {:?}\t{:?}", self.name, total);
-//     }
-// }

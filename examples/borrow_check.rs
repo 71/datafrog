@@ -11,19 +11,19 @@ fn main() {
         let mut iteration1 = Iteration::new();
 
         // .. some variables, ..
-        let subset = iteration1.variable::<(Region, Region, Point)>("subset");
+        let subset = iteration1.variable::<(Region, Region, Point)>();
 
         // different indices for `subset`.
-        let subset_r1p = iteration1.variable::<((Region, Point), Region)>("subset_r1p");
-        let subset_r2p = iteration1.variable::<((Region, Point), Region)>("subset_r2p");
-        let subset_p = iteration1.variable::<(Point, (Region, Region))>("subset_p");
+        let subset_r1p = iteration1.variable::<((Region, Point), Region)>();
+        let subset_r2p = iteration1.variable::<((Region, Point), Region)>();
+        let subset_p = iteration1.variable::<(Point, (Region, Region))>();
 
         // temporaries as we perform a multi-way join.
-        let subset_1 = iteration1.variable::<((Region, Point), Region)>("subset_1");
-        let subset_2 = iteration1.variable::<((Region, Point), Region)>("subset_2");
+        let subset_1 = iteration1.variable::<((Region, Point), Region)>();
+        let subset_2 = iteration1.variable::<((Region, Point), Region)>();
 
-        let region_live_at = iteration1.variable::<((Region, Point), ())>("region_live_at");
-        let cfg_edge_p = iteration1.variable::<(Point, Point)>("cfg_edge_p");
+        let region_live_at = iteration1.variable::<((Region, Point), ())>();
+        let cfg_edge_p = iteration1.variable::<(Point, Point)>();
 
         // load initial facts.
         subset.insert(Vec::new().into());
@@ -66,21 +66,21 @@ fn main() {
         let mut iteration2 = Iteration::new();
 
         // .. some variables, ..
-        let requires = iteration2.variable::<(Region, Borrow, Point)>("requires");
+        let requires = iteration2.variable::<(Region, Borrow, Point)>();
         requires.insert(Vec::new().into());
 
-        let requires_rp = iteration2.variable::<((Region, Point), Borrow)>("requires_rp");
-        let requires_bp = iteration2.variable::<((Borrow, Point), Region)>("requires_bp");
+        let requires_rp = iteration2.variable::<((Region, Point), Borrow)>();
+        let requires_bp = iteration2.variable::<((Borrow, Point), Region)>();
 
-        let requires_1 = iteration2.variable::<(Point, (Borrow, Region))>("requires_1");
-        let requires_2 = iteration2.variable::<((Region, Point), Borrow)>("requires_2");
+        let requires_1 = iteration2.variable::<(Point, (Borrow, Region))>();
+        let requires_2 = iteration2.variable::<((Region, Point), Borrow)>();
 
-        let subset_r1p = iteration2.variable::<((Region, Point), Region)>("subset_r1p");
+        let subset_r1p = iteration2.variable::<((Region, Point), Region)>();
         subset_r1p.insert(subset);
 
         let killed = Vec::new().into();
-        let region_live_at = iteration2.variable::<((Region, Point), ())>("region_live_at");
-        let cfg_edge_p = iteration2.variable::<(Point, Point)>("cfg_edge_p");
+        let region_live_at = iteration2.variable::<((Region, Point), ())>();
+        let cfg_edge_p = iteration2.variable::<(Point, Point)>();
 
         // .. and then start iterating rules!
         while iteration2.changed() {

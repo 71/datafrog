@@ -15,10 +15,10 @@ fn reachable_with_var_join(edges: &[(u32, u32)]) -> Relation<(u32, u32)> {
     let edges: Relation<_> = edges.iter().collect();
     let mut iteration = Iteration::new();
 
-    let edges_by_successor = iteration.variable::<(u32, u32)>("edges_invert");
+    let edges_by_successor = iteration.variable::<(u32, u32)>();
     edges_by_successor.extend(edges.iter().map(|&(n1, n2)| (n2, n1)));
 
-    let reachable = iteration.variable::<(u32, u32)>("reachable");
+    let reachable = iteration.variable::<(u32, u32)>();
     reachable.insert(edges);
 
     while iteration.changed() {
@@ -37,7 +37,7 @@ fn reachable_with_relation_join(edges: &[(u32, u32)]) -> Relation<(u32, u32)> {
     // NB. Changed from `reachable_with_var_join`:
     let edges_by_successor: Relation<_> = edges.iter().map(|&(n1, n2)| (n2, n1)).collect();
 
-    let reachable = iteration.variable::<(u32, u32)>("reachable");
+    let reachable = iteration.variable::<(u32, u32)>();
     reachable.insert(edges);
 
     while iteration.changed() {
@@ -54,7 +54,7 @@ fn reachable_with_leapfrog(edges: &[(u32, u32)]) -> Relation<(u32, u32)> {
 
     let edges_by_successor: Relation<_> = edges.iter().map(|&(n1, n2)| (n2, n1)).collect();
 
-    let reachable = iteration.variable::<(u32, u32)>("reachable");
+    let reachable = iteration.variable::<(u32, u32)>();
     reachable.insert(edges);
 
     while iteration.changed() {
@@ -77,13 +77,13 @@ fn sum_join_via_var(
 ) -> Relation<(u32, u32)> {
     let mut iteration = Iteration::new();
 
-    let input1 = iteration.variable::<(u32, u32)>("input1");
+    let input1 = iteration.variable::<(u32, u32)>();
     input1.extend(input1_slice);
 
-    let input2 = iteration.variable::<(u32, u32)>("input1");
+    let input2 = iteration.variable::<(u32, u32)>();
     input2.extend(input2_slice);
 
-    let output = iteration.variable::<(u32, u32)>("output");
+    let output = iteration.variable::<(u32, u32)>();
 
     while iteration.changed() {
         // output(K1, V1 * 100 + V2) :- input1(K1, V1), input2(K1, V2).
@@ -178,7 +178,7 @@ fn leapjoin_from_extend() {
 
     let mut iteration = Iteration::new();
 
-    let variable = iteration.variable::<(u32, u32)>("variable");
+    let variable = iteration.variable::<(u32, u32)>();
     variable.extend(Some((2, 2)));
 
     while iteration.changed() {

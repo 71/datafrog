@@ -9,11 +9,13 @@ use std::ops::Deref;
 /// because relations have no "recent" tuples, so the fn would be a
 /// guaranteed no-op if both arguments were relations.  See also
 /// `join_into_relation`.
-pub(crate) fn join_into<'me, Key: Ord, Val1: Ord, Val2: Ord, Result: Ord>(
-    input1: &Variable<(Key, Val1)>,
-    input2: impl JoinInput<'me, (Key, Val2)>,
+pub(crate) fn join_into<'me, T1: Ord, T2: Ord, Key: Ord, Result: Ord>(
+    input1: &Variable<T1>,
+    input2: impl JoinInput<'me, T2>,
     output: &Variable<Result>,
-    mut logic: impl FnMut(&Key, &Val1, &Val2) -> Result,
+    input1_key: impl Fn(&T1) -> &Key,
+    input2_key: impl Fn(&T2) -> &Key,
+    mut logic: impl FnMut(&Key, &T1, &T2) -> Result,
 ) {
     let mut results = Vec::new();
 
@@ -23,31 +25,33 @@ pub(crate) fn join_into<'me, Key: Ord, Val1: Ord, Val2: Ord, Result: Ord>(
     {
         // scoped to let `closure` drop borrow of `results`.
 
-        let mut closure = |k: &Key, v1: &Val1, v2: &Val2| results.push(logic(k, v1, v2));
+        let mut closure = |k: &Key, v1: &T1, v2: &T2| results.push(logic(k, v1, v2));
 
         for batch2 in input2.stable().iter() {
-            join_helper(&recent1, &batch2, &mut closure);
+            join_helper(&recent1, &batch2, &input1_key, &input2_key, &mut closure);
         }
 
         for batch1 in input1.stable().iter() {
-            join_helper(&batch1, &recent2, &mut closure);
+            join_helper(&batch1, &recent2, &input1_key, &input2_key, &mut closure);
         }
 
-        join_helper(&recent1, &recent2, &mut closure);
+        join_helper(&recent1, &recent2, input1_key, input2_key, &mut closure);
     }
 
     output.insert(Relation::from_vec(results));
 }
 
 /// Join, but for two relations.
-pub(crate) fn join_into_relation<'me, Key: Ord, Val1: Ord, Val2: Ord, Result: Ord>(
-    input1: &Relation<(Key, Val1)>,
-    input2: &Relation<(Key, Val2)>,
-    mut logic: impl FnMut(&Key, &Val1, &Val2) -> Result,
+pub(crate) fn join_into_relation<'me, Key: Ord, T1: Ord, T2: Ord, Result: Ord>(
+    input1: &Relation<T1>,
+    input2: &Relation<T2>,
+    input1_key: impl Fn(&T1) -> &Key,
+    input2_key: impl Fn(&T2) -> &Key,
+    mut logic: impl FnMut(&Key, &T1, &T2) -> Result,
 ) -> Relation<Result> {
     let mut results = Vec::new();
 
-    join_helper(&input1.elements, &input2.elements, |k, v1, v2| {
+    join_helper(&input1.elements, &input2.elements, input1_key, input2_key, |k, v1, v2| {
         results.push(logic(k, v1, v2));
     });
 
@@ -75,28 +79,33 @@ pub(crate) fn antijoin<'me, Key: Ord, Val: Ord, Result: Ord>(
     Relation::from_vec(results)
 }
 
-fn join_helper<K: Ord, V1, V2>(
-    mut slice1: &[(K, V1)],
-    mut slice2: &[(K, V2)],
-    mut result: impl FnMut(&K, &V1, &V2),
+fn join_helper<K: Ord, T1, T2>(
+    mut slice1: &[T1],
+    mut slice2: &[T2],
+    slice1_key: impl Fn(&T1) -> &K,
+    slice2_key: impl Fn(&T2) -> &K,
+    mut result: impl FnMut(&K, &T1, &T2),
 ) {
     while !slice1.is_empty() && !slice2.is_empty() {
         use std::cmp::Ordering;
 
         // If the keys match produce tuples, else advance the smaller key until they might.
-        match slice1[0].0.cmp(&slice2[0].0) {
+        let key1 = slice1_key(&slice1[0]);
+        let key2 = slice2_key(&slice2[0]);
+
+        match key1.cmp(key2) {
             Ordering::Less => {
-                slice1 = gallop(slice1, |x| x.0 < slice2[0].0);
+                slice1 = gallop(slice1, |x| slice1_key(x) < key2);
             }
             Ordering::Equal => {
                 // Determine the number of matching keys in each slice.
-                let count1 = slice1.iter().take_while(|x| x.0 == slice1[0].0).count();
-                let count2 = slice2.iter().take_while(|x| x.0 == slice2[0].0).count();
+                let count1 = slice1.iter().take_while(|x| slice1_key(x) == key1).count();
+                let count2 = slice2.iter().take_while(|x| slice2_key(x) == key2).count();
 
                 // Produce results from the cross-product of matches.
                 for index1 in 0..count1 {
                     for s2 in slice2[..count2].iter() {
-                        result(&slice1[0].0, &slice1[index1].1, &s2.1);
+                        result(&key1, &slice1[index1], &s2);
                     }
                 }
 
@@ -105,7 +114,7 @@ fn join_helper<K: Ord, V1, V2>(
                 slice2 = &slice2[count2..];
             }
             Ordering::Greater => {
-                slice2 = gallop(slice2, |x| x.0 < slice1[0].0);
+                slice2 = gallop(slice2, |x| slice2_key(x) < key1);
             }
         }
     }
